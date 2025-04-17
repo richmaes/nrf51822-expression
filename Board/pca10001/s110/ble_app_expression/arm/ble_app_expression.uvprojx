@@ -386,6 +386,11 @@
           <GroupName>Source Code</GroupName>
           <Files>
             <File>
+              <FileName>app_gpiote.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\app_gpiote.c</FilePath>
+            </File>
+            <File>
               <FileName>main.c</FileName>
               <FileType>1</FileType>
               <FilePath>.\..\main.c</FilePath>
@@ -399,6 +404,11 @@
               <FileName>led.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\led.c</FilePath>
+            </File>
+            <File>
+              <FileName>bma222.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\bma222.c</FilePath>
             </File>
           </Files>
         </Group>
@@ -419,6 +429,11 @@
               <FileName>ble_hrs.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\..\..\..\Source\ble\ble_services\ble_hrs.c</FilePath>
+            </File>
+            <File>
+              <FileName>ble_acs.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\ble_acs.c</FilePath>
             </File>
           </Files>
         </Group>
@@ -481,11 +496,6 @@
               <FilePath>..\..\..\..\..\Source\app_common\app_button.c</FilePath>
             </File>
             <File>
-              <FileName>app_gpiote.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\..\..\Source\app_common\app_gpiote.c</FilePath>
-            </File>
-            <File>
               <FileName>ble_error_log.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\..\..\..\Source\ble\ble_error_log.c</FilePath>
@@ -494,6 +504,11 @@
               <FileName>ble_debug_assert_handler.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\..\..\..\Source\ble\ble_debug_assert_handler.c</FilePath>
+            </File>
+            <File>
+              <FileName>twi_sw_master.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\..\Source\twi_master\twi_sw_master.c</FilePath>
             </File>
           </Files>
         </Group>
@@ -883,6 +898,11 @@
           <GroupName>Source Code</GroupName>
           <Files>
             <File>
+              <FileName>app_gpiote.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\app_gpiote.c</FilePath>
+            </File>
+            <File>
               <FileName>main.c</FileName>
               <FileType>1</FileType>
               <FilePath>.\..\main.c</FilePath>
@@ -896,6 +916,11 @@
               <FileName>led.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\led.c</FilePath>
+            </File>
+            <File>
+              <FileName>bma222.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\bma222.c</FilePath>
             </File>
           </Files>
         </Group>
@@ -916,6 +941,11 @@
               <FileName>ble_hrs.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\..\..\..\Source\ble\ble_services\ble_hrs.c</FilePath>
+            </File>
+            <File>
+              <FileName>ble_acs.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\ble_acs.c</FilePath>
             </File>
           </Files>
         </Group>
@@ -978,11 +1008,6 @@
               <FilePath>..\..\..\..\..\Source\app_common\app_button.c</FilePath>
             </File>
             <File>
-              <FileName>app_gpiote.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\..\..\Source\app_common\app_gpiote.c</FilePath>
-            </File>
-            <File>
               <FileName>ble_error_log.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\..\..\..\Source\ble\ble_error_log.c</FilePath>
@@ -991,6 +1016,11 @@
               <FileName>ble_debug_assert_handler.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\..\..\..\Source\ble\ble_debug_assert_handler.c</FilePath>
+            </File>
+            <File>
+              <FileName>twi_sw_master.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\..\Source\twi_master\twi_sw_master.c</FilePath>
             </File>
           </Files>
         </Group>

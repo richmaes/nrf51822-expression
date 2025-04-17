@@ -1,8 +1,8 @@
 echo "Erasing Device..."
-nrfjprog --eraseall
+nrfjprog --snr 480205615 --eraseall
 echo "Programming Softdevice..."
-nrfjprog --program  ~/src/nrf51822-pca10001/s110_nrf51822_7.3.0_softdevice.hex -f nrf51 --sectorerase --verify
+nrfjprog --snr 480205615 --program  ~/src/nrf51822-pca10001/s110_nrf51822_7.3.0_softdevice.hex -f nrf51 --sectorerase --verify
 echo "Programming Application..."
-nrfjprog --program  arm/_build/ble_app_expression.hex -f nrf51 --verify
+nrfjprog --snr 480205615 --program  arm/_build/ble_app_expression.hex -f nrf51 --verify
 echo "Reseting Device..."
-nrfjprog --reset 
+nrfjprog --snr 480205615 --reset 

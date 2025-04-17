@@ -21,11 +21,41 @@
  * (and also Battery and Device Information services) for the nRF51822 evaluation board (PCA10001).
  * This application uses the @ref ble_sdk_lib_conn_params module.
  */
+// Un-comment this define to use a hard coded BTLE UUID instead of content from the UICR
+// #define USE_FIXED_CONFIG 1
+//#if defined(BOARD_NRF6310)
+  
+//#elif defined(BOARD_PCA10000)
+  
+//#elif defined(BOARD_PCA10001)
+  
+//#elif defined(BOARD_PCA10003)
+  
+//#else
+    //#define REAL_ACCEL
+//#endif
 
+
+
+//  Memory contents will consists of a known header, a BTLE address and a checksum.  
+// The checksum will be a 8 bit sum of the header and BTLE address ( a total of 10 bytes)
+#define RAM_HEADER  { 0x55, 0xAA, 0x33, 0xCC }
+#define BTLE_SN     { 0x57, 0xF9, 0x99, 0x49, 0x3D, 0xFF }
+
+
+#define _GPIOTE_CONFIG_BUTTON(PIN_NO)             \
+        (                                         \
+          (GPIOTE_CONFIG_POLARITY_HiToLo << 16) | \
+          ((PIN_NO) << 8) |                       \
+          GPIOTE_CONFIG_MODE_Event                \
+        )
+
+#define GPIOTE_CONFIG_BUTTON(PIN_NO) _GPIOTE_CONFIG_BUTTON(PIN_NO)
 #include <stdint.h>
 #include <string.h>
 #include "nordic_common.h"
 #include "nrf.h"
+#include "nrf_delay.h"
 #include "app_error.h"
 #include "nrf51_bitfields.h"
 #include "ble.h"
@@ -33,6 +63,7 @@
 #include "ble_advdata.h"
 #include "ble_bas.h"
 #include "ble_hrs.h"
+#include "ble_acs.h"
 #include "ble_dis.h"
 #include "ble_conn_params.h"
 #include "boards.h"
@@ -47,8 +78,13 @@
 #include "ble_debug_assert_handler.h"
 #include "pstorage.h"
 #include "app_trace.h"
+#include "boards.h"
 
 
+#include "bma222.h"
+#include "twi_master.h"
+#include "uicr.h"
+#include "app_util_platform.h"
 
 
 #define IS_SRVC_CHANGED_CHARACT_PRESENT      0                                          /**< Include or not the service_changed characteristic. if not enabled, the server's database cannot be changed for the lifetime of the device*/
@@ -56,17 +92,28 @@
 #define HR_INC_BUTTON_PIN_NO                 BUTTON_0                                   /**< Button used to increment heart rate. */
 #define HR_DEC_BUTTON_PIN_NO                 BUTTON_1                                   /**< Button used to decrement heart rate. */
 #define BOND_DELETE_ALL_BUTTON_ID            HR_DEC_BUTTON_PIN_NO                       /**< Button used for deleting all bonded centrals during startup. */
+#define UICR_ADDR                        0x10001080
 
 #define DEVICE_NAME                          "IR Expression"                            /**< Name of device. Will be included in the advertising data. */
 #define MANUFACTURER_NAME                    "Idea Rockets LLC."                        /**< Manufacturer. Will be passed to Device Information Service. */
 #define APP_ADV_INTERVAL                     40                                         /**< The advertising interval (in units of 0.625 ms. This value corresponds to 25 ms). */
 #define APP_ADV_TIMEOUT_IN_SECONDS           180                                        /**< The advertising timeout in units of seconds. */
 
+//#define DICE_LED1_PIN_NO                 17                                           /*!< Pin for LED1 on Dice 600 board*/
+#define DICE_LED1_PIN_NO                 23                                             /*!< Pin for LED1. original prototype */
+#define DICE_LED2_PIN_NO                 29                                             /*!< Pin for LED1. original prototype */
+#define ACCEL_INT1_PIN_NO                1                                              /*!< Pin for INT1. */
+#define ACCEL_INT2_PIN_NO                2                                              /*!< Pin for INT2. */
+
 #define APP_TIMER_PRESCALER                  0                                          /**< Value of the RTC1 PRESCALER register. */
 #define APP_TIMER_MAX_TIMERS                 5                                          /**< Maximum number of simultaneously created timers. */
 #define APP_TIMER_OP_QUEUE_SIZE              5                                          /**< Size of timer operation queues. */
 
 #define BATTERY_LEVEL_MEAS_INTERVAL          APP_TIMER_TICKS(2000, APP_TIMER_PRESCALER) /**< Battery level measurement interval (ticks). */
+#define BMA222_MEAS_INTERVAL                 APP_TIMER_TICKS(50, APP_TIMER_PRESCALER)   /**< Acceloromter level measurement interval (ticks). */
+
+#define TX_TIMEOUT_DURATION                  APP_TIMER_TICKS(120000, APP_TIMER_PRESCALER)  /*!< The time to stay a awake after waking interrupts stop being asserted. */
+#define TX_TIMEOUT_SCOUNT                    (TX_TIMEOUT_DURATION / BMA222_MEAS_INTERVAL)  /*!< Calculated number of samples to meet the approximate terminal time*/
 
 #define HEART_RATE_MEAS_INTERVAL             APP_TIMER_TICKS(1000, APP_TIMER_PRESCALER) /**< Heart rate measurement interval (ticks). */
 #define MIN_HEART_RATE                       60                                         /**< Minimum heart rate as returned by the simulated measurement function. */
@@ -84,7 +131,7 @@
 
 #define FIRST_CONN_PARAMS_UPDATE_DELAY       APP_TIMER_TICKS(5000, APP_TIMER_PRESCALER) /**< Time from initiating event (connect or start of notification) to first time sd_ble_gap_conn_param_update is called (5 seconds). */
 #define NEXT_CONN_PARAMS_UPDATE_DELAY        APP_TIMER_TICKS(30000, APP_TIMER_PRESCALER)/**< Time between each call to sd_ble_gap_conn_param_update after the first call (30 seconds). */
-#define MAX_CONN_PARAMS_UPDATE_COUNT         3                                          /**< Number of attempts before giving up the connection parameter negotiation. */
+#define MAX_CONN_PARAMS_UPDATE_COUNT         30                                          /**< Number of attempts before giving up the connection parameter negotiation. */
 
 #define SEC_PARAM_TIMEOUT                    30                                         /**< Timeout for Pairing Request or Security Request (in seconds). */
 #define SEC_PARAM_BOND                       1                                          /**< Perform bonding. */
@@ -99,12 +146,23 @@
 
 
 static ble_gap_adv_params_t                  m_adv_params;                              /**< Parameters to be passed to the stack when starting advertising. */
+// BMA222 configuration
+#define BMA222_DEVICE_ID                 0x00
+#define BMA222_SDA_PIN_NO                TWI_MASTER_CONFIG_DATA_PIN_NUMBER              // BMA serial pin interfaces
+#define BMA222_SCL_PIN_NO                TWI_MASTER_CONFIG_CLOCK_PIN_NUMBER             // BMA serial pin interfaces 
+
+// LED FLASH configuration
+#define LED_TOGGLE_INTERVAL              APP_TIMER_TICKS(100, APP_TIMER_PRESCALER)
+#define LED_TOGGLE_DURATION              APP_TIMER_TICKS(2000, APP_TIMER_PRESCALER)    /*!< The time to stay a awake after waking interrupts stop being asserted. */
+#define LED_TOGGLE_SCOUNT                (LED_TOGGLE_DURATION / LED_TOGGLE_INTERVAL)   /*!< Calculated number of samples to meet the approximate terminal time*/
 ble_bas_t                                    bas;                                       /**< Structure used to identify the battery service. */
 static ble_hrs_t                             m_hrs;                                     /**< Structure used to identify the heart rate service. */
+static ble_acs_t                             m_lbs;
 static volatile uint16_t                     m_cur_heart_rate;                          /**< Current heart rate value. */
                                                                                        
 static app_timer_id_t                        m_battery_timer_id;                        /**< Battery timer. */
-static app_timer_id_t                        m_heart_rate_timer_id;                     /**< Heart rate measurement timer. */
+static app_timer_id_t                        m_accel_timer_id;                          /**< Accelerometer timer. */
+
 static bool                                  m_memory_access_in_progress = false;       /**< Flag to keep track of ongoing operations on persistent memory. */
 static dm_application_instance_t             m_app_handle;                              /**< Application identifier allocated by device manager */
 static void ble_evt_dispatch(ble_evt_t * p_ble_evt);
@@ -117,6 +175,27 @@ static void sys_evt_dispatch(uint32_t sys_evt);
 *****************************************************************************/
 
 
+static bool                              s_useLEDs = false;         /*!< Enable LED control for use by application*/
+static uint8_t                           s_LED_state = 0;           /*!< Keep track of LED's states to control turn on and off of LED's*/
+
+void dly5ms(void);				  // 5 miliseconds delay
+void dly50ms(void);               // 50 milisecond delay
+void dly100ms(void);              // 100 milisecond delay
+void dly250ms(void);			  // 250 miliseconds delay 
+static void doubleFlashAlternating(void);
+static void ledParser(uint8_t report_val);
+uint8_t my_address[6] =  /*!< Assign a default address. */
+{
+    0x01, /* 0x01  */
+    0x02, /* 0x02  */
+    0x03, /* 0x03  */
+    0x04, /* 0x04  */
+    0x05, /* 0x05  */
+    0x06  /* 0x06  */
+};
+
+uint16_t tx_timeout = TX_TIMEOUT_SCOUNT;
+uint16_t flash_timeout = 0;
 /**@brief Function for error handling, which is called when an error has occurred. 
  *
  * @warning This handler is an example only and does not fit a final product. You need to analyze 
@@ -169,6 +248,10 @@ static void conn_params_error_handler(uint32_t nrf_error)
 }
 
 
+static void led_write_handler(ble_acs_t * p_lbs, uint8_t led_state)
+{
+	//ledParser(led_state);
+}
 
 
 /*****************************************************************************
@@ -189,6 +272,51 @@ static void battery_level_meas_timeout_handler(void * p_context)
     battery_start();
 }
 
+
+/**@brief Accelerometer measurement timer timeout handler.
+ *
+ * @details This function will be called each time the BMA222 accelration measurement timer expires.
+ *
+ * @param[in]   p_ev_data   Event data.
+ */
+static void bma222_accel_meas_timeout_handler(void * p_context)
+{
+   uint32_t err_code;
+   
+   static uint8_t prev_axis_x, prev_axis_y, prev_axis_z;
+   UNUSED_PARAMETER(p_context);
+   nrf_gpio_pin_toggle(DICE_LED1_PIN_NO);
+   #ifdef REAL_ACCEL
+      uint8_t axis_x, axis_y, axis_z;
+      // Retrieve accelerometer data from BMA222
+	    nrf_gpio_pin_set(DICE_LED1_PIN_NO);
+      bma222_acc_read();
+	    nrf_gpio_pin_set(DICE_LED2_PIN_NO);
+         
+      // Transmit buffer
+      axis_x = bma222_getX();
+      axis_y = bma222_getY();
+      axis_z = bma222_getZ();
+   #else
+      static uint8_t axis_x, axis_y, axis_z;
+      uint8_t delay;
+      delay = 0;
+         
+      if (delay==0) {
+          axis_x = axis_x + 1;
+          axis_y = axis_y + 1;
+          axis_z = axis_z + 1;
+      }
+   #endif
+
+   if ((axis_x != prev_axis_x) | (axis_y != prev_axis_y) | (axis_z != prev_axis_z))
+   {
+       ble_acs_on_button_change(&m_lbs, 0, axis_x, axis_y, axis_z);
+       prev_axis_x = axis_x;
+       prev_axis_y = axis_y;
+       prev_axis_z = axis_z;
+   }
+}
 
 /**@brief Function for handling the Heart rate measurement timer timeout.
  *
@@ -218,6 +346,18 @@ static void heart_rate_meas_timeout_handler(void * p_context)
     {
         APP_ERROR_HANDLER(err_code);
     }
+}
+
+/**@brief Function for the LEDs initialization.
+ *
+ * @details Initializes all LEDs used by the application.
+ */
+static void leds_init(void)
+    {
+    nrf_gpio_pin_clear(DICE_LED1_PIN_NO);
+    nrf_gpio_cfg_output(DICE_LED1_PIN_NO);
+    nrf_gpio_pin_clear(DICE_LED2_PIN_NO);
+    nrf_gpio_cfg_output(DICE_LED2_PIN_NO);
 }
 
 
@@ -278,9 +418,9 @@ static void timers_init(void)
                                 battery_level_meas_timeout_handler);
     APP_ERROR_CHECK(err_code);
 
-    err_code = app_timer_create(&m_heart_rate_timer_id,
+    err_code = app_timer_create(&m_accel_timer_id,
                                 APP_TIMER_MODE_REPEATED,
-                                heart_rate_meas_timeout_handler);
+                                bma222_accel_meas_timeout_handler);
     APP_ERROR_CHECK(err_code);
 }
 
@@ -331,9 +471,14 @@ static void advertising_init(void)
 
     ble_uuid_t adv_uuids[] =
     {
-        {BLE_UUID_HEART_RATE_SERVICE,         BLE_UUID_TYPE_BLE},
+        //{BLE_UUID_HEART_RATE_SERVICE,         BLE_UUID_TYPE_BLE},
+        {0x1523,         BLE_UUID_TYPE_BLE},
         {BLE_UUID_BATTERY_SERVICE,            BLE_UUID_TYPE_BLE},
         {BLE_UUID_DEVICE_INFORMATION_SERVICE, BLE_UUID_TYPE_BLE}
+        
+    };
+		// YOUR_JOB: Use UUIDs for service(s) used in your application.
+    ble_uuid_t adv_lbs_uuids[] = {{ACS_UUID_SERVICE, m_lbs.uuid_type}
     };
 
     // Build and set advertising data.
@@ -370,7 +515,11 @@ static void services_init(void)
     ble_hrs_init_t hrs_init;
     ble_bas_init_t bas_init;
     ble_dis_init_t dis_init;
+	ble_acs_init_t acs_init;
+    ble_dis_pnp_id_t pnp_id;
+  	ble_srv_utf8_str_t sn_str_t;
     uint8_t        body_sensor_location;
+    char sn_str[13]; // 12 characters and terminator
 
     // Initialize Heart Rate Service.
     body_sensor_location = BLE_HRS_BODY_SENSOR_LOCATION_FINGER;
@@ -418,6 +567,12 @@ static void services_init(void)
     BLE_GAP_CONN_SEC_MODE_SET_NO_ACCESS(&dis_init.dis_attr_md.write_perm);
 
     err_code = ble_dis_init(&dis_init);
+    APP_ERROR_CHECK(err_code);
+    
+	// Initialize the Dice Accelerometer Service	
+    acs_init.led_write_handler = led_write_handler;
+       // m_lbs.uuid_type = BLE_UUID_TYPE_BLE;
+    err_code = ble_acs_init(&m_lbs, &acs_init);
     APP_ERROR_CHECK(err_code);
 }
 
@@ -504,7 +659,7 @@ static void ble_stack_init(void)
     uint32_t err_code;
     
     // Initialize the SoftDevice handler module.
-    SOFTDEVICE_HANDLER_INIT(NRF_CLOCK_LFCLKSRC_XTAL_20_PPM, false);
+    SOFTDEVICE_HANDLER_INIT(NRF_CLOCK_LFCLKSRC_RC_250_PPM_4000MS_CALIBRATION, false);
 
     // Enable BLE stack 
     ble_enable_params_t ble_enable_params;
@@ -562,7 +717,7 @@ static void application_timers_start(void)
     err_code = app_timer_start(m_battery_timer_id, BATTERY_LEVEL_MEAS_INTERVAL, NULL);
     APP_ERROR_CHECK(err_code);
 
-    err_code = app_timer_start(m_heart_rate_timer_id, HEART_RATE_MEAS_INTERVAL, NULL);
+    err_code = app_timer_start(m_accel_timer_id, BMA222_MEAS_INTERVAL, NULL);
     APP_ERROR_CHECK(err_code);
 }
 
@@ -630,6 +785,7 @@ static void on_ble_evt(ble_evt_t * p_ble_evt)
             // Start handling button presses
             err_code = app_button_enable();
             APP_ERROR_CHECK(err_code);
+				
             break;
 
         case BLE_GAP_EVT_DISCONNECTED:            
@@ -700,6 +856,7 @@ static void ble_evt_dispatch(ble_evt_t * p_ble_evt)
 {
     dm_ble_evt_handler(p_ble_evt);
     ble_hrs_on_ble_evt(&m_hrs, p_ble_evt);
+    ble_acs_on_ble_evt(&m_lbs, p_ble_evt);
     ble_bas_on_ble_evt(&bas, p_ble_evt);
     ble_conn_params_on_ble_evt(p_ble_evt);
     on_ble_evt(p_ble_evt);
@@ -711,6 +868,112 @@ static void ble_evt_dispatch(ble_evt_t * p_ble_evt)
  * @details This function is called from the System event interrupt handler after a system
  *          event has been received.
  *
+ *@brief Function for the Power manager.
+ **/
+void GPIOTE_IRQHandler(void)
+{
+    uint32_t               err_code;
+        
+        // Handle button interrupts
+    if (
+       (NRF_GPIOTE->EVENTS_IN[0] != 0)
+        &&
+       ((NRF_GPIOTE->INTENSET & GPIOTE_INTENSET_IN0_Msk) != 0)
+       )
+       {
+        NRF_GPIOTE->EVENTS_IN[0] = 0;
+        
+        err_code = app_timer_start(m_accel_timer_id, BMA222_MEAS_INTERVAL, NULL);
+
+        APP_ERROR_CHECK(err_code);
+        
+		if (s_useLEDs)
+        {    
+           flash_timeout = LED_TOGGLE_SCOUNT;
+		   //if (s_LED_state == 0) {
+	       //   nrf_gpio_pin_set(DICE_LED1_PIN_NO);  
+	       //} else if (s_LED_state == 1) {
+	       //   nrf_gpio_pin_clear(DICE_LED1_PIN_NO);
+	       //}
+        } 
+
+        // Set the timeout counter for count down
+        tx_timeout = TX_TIMEOUT_SCOUNT;
+    }
+
+
+    // Handle unexpected interrupts
+    if (
+       (NRF_GPIOTE->EVENTS_IN[1] != 0)
+       &&
+       ((NRF_GPIOTE->INTENSET & GPIOTE_INTENSET_IN1_Msk) != 0)
+       )
+    {
+        //s_freefall = true;
+        NRF_GPIOTE->EVENTS_IN[1] = 0;
+        // Interupt 1 routine
+    }
+
+    // unexpected interrupts
+    if (
+       (NRF_GPIOTE->EVENTS_IN[2] != 0)
+       &&
+       ((NRF_GPIOTE->INTENSET & GPIOTE_INTENSET_IN2_Msk) != 0)
+       )
+    {
+        NRF_GPIOTE->EVENTS_IN[2] = 0;
+}
+
+    if (
+       (NRF_GPIOTE->EVENTS_IN[3] != 0)
+       &&
+       ((NRF_GPIOTE->INTENSET & GPIOTE_INTENSET_IN3_Msk) != 0)
+       )
+    {
+        NRF_GPIOTE->EVENTS_IN[3] = 0;
+}
+
+    if (
+       (NRF_GPIOTE->EVENTS_PORT != 0)
+       &&
+       ((NRF_GPIOTE->INTENSET & GPIOTE_INTENSET_PORT_Msk) != 0)
+       )
+    {
+        NRF_GPIOTE->EVENTS_PORT = 0;
+}
+}
+
+
+/**@brief Initialize GPIOTE module for detecting acceleration interrupts.
+ */
+static void acc_int_init(void)
+{
+    //uint32_t err_code;
+    //uint32_t per_rdy;
+
+    // Initialize GPIOTE module
+    NRF_GPIOTE->INTENCLR = 0xffffffffUL;
+    NRF_GPIOTE->CONFIG[0]    = GPIOTE_CONFIG_BUTTON(ACCEL_INT1_PIN_NO);
+    NRF_GPIOTE->CONFIG[1]    = GPIOTE_CONFIG_BUTTON(ACCEL_INT2_PIN_NO);
+    NRF_GPIOTE->EVENTS_IN[0] = 0;
+    NRF_GPIOTE->EVENTS_IN[1] = 0;
+    NRF_GPIOTE->INTENSET     = GPIOTE_INTENSET_IN0_Msk | GPIOTE_INTENSET_IN1_Msk ;
+
+    // Turn on the sense detect to trigger wakeup when the device is asleep.
+    NRF_GPIO->PIN_CNF[ACCEL_INT1_PIN_NO] = (GPIO_PIN_CNF_SENSE_High     << GPIO_PIN_CNF_SENSE_Pos);
+    NRF_GPIO->PIN_CNF[ACCEL_INT2_PIN_NO] = (GPIO_PIN_CNF_SENSE_High     << GPIO_PIN_CNF_SENSE_Pos);
+
+    //err_code = sd_nvic_ClearPendingIRQ(GPIOTE_IRQn);
+	NVIC_ClearPendingIRQ(GPIOTE_IRQn);
+    // nrf_gpio_pin_clear(DICE_LED2_PIN_NO);
+    // nrf_gpio_pin_set(DICE_LED2_PIN_NO);
+    
+    NVIC_SetPriority(GPIOTE_IRQn, APP_IRQ_PRIORITY_HIGH);
+
+	NVIC_EnableIRQ(GPIOTE_IRQn);
+}
+
+ /*
  * @param[in]   sys_evt   System stack event.
  */
 static void sys_evt_dispatch(uint32_t sys_evt)
@@ -729,12 +992,40 @@ static void sys_evt_dispatch(uint32_t sys_evt)
 int main(void)
 {
     uint32_t err_code;
+    // Initialize
+    leds_init();
+	
+	// Double flash the LED's to validate initialization 
+	//doubleFlashAlternating();
 
+    // Activate the TWI interface for accelerometer comms
+    twi_master_init();
+	  //doubleFlashAlternating();
+
+    // Reset and initialize the accelerometer
+    bma222_setDeviceAddress(BMA222E_BASE_ADDRESS_DEV0);
+    if (bma222_reset()) {
+        bma222_init(BMA222E_BASE_ADDRESS_DEV0);
+	} else {
+		bma222_setDeviceAddress(BMA222_BASE_ADDRESS_DEV0);
+		bma222_reset();
+		bma222_init(BMA222_BASE_ADDRESS_DEV0);
+		
+	}
+	
+	
     timers_init();
     gpiote_init();
+
+	
     buttons_init();
+    
     ble_stack_init();
+    //doubleFlashAlternating();
+
+
     device_manager_init();
+
 
     // Initialize Bluetooth Stack parameters.
     gap_params_init();
@@ -745,6 +1036,7 @@ int main(void)
     // Start advertising.
     advertising_start();
 
+
     // Enter main loop.
     for (;;)
     {
@@ -754,6 +1046,77 @@ int main(void)
     }
 }
 
+void doubleFlashAlternating(void) {
+	   uint8_t i = 0;
+    // Turn LED's off and on alternatley.  Always turn off previous LED first before turning on other LED.
+           //nrf_gpio_pin_clear(DICE_LED1_PIN_NO);
+           //  for (i = 0; i < 10; i++) {
+           //     dly5ms();
+           //  }
+           // nrf_gpio_pin_clear(DICE_LED1_PIN_NO);
+           //  for (i = 0; i < 10; i++) {
+           //     dly5ms();
+           //  }
+       for (int jj = 0; jj < 2; jj = jj +1) {
+           nrf_gpio_pin_clear(DICE_LED1_PIN_NO);
+                 //dly50ms();
+                 //nrf_gpio_pin_clear(DICE_LED1_PIN_NO);
+                 dly50ms();
+                 nrf_gpio_pin_set(DICE_LED1_PIN_NO);
+                 dly50ms();
+                 nrf_gpio_pin_clear(DICE_LED1_PIN_NO);
+                 dly50ms();
+                 nrf_gpio_pin_set(DICE_LED1_PIN_NO);
+                 dly50ms();
+                 nrf_gpio_pin_clear(DICE_LED1_PIN_NO);
+                 dly50ms();
+                 nrf_gpio_pin_set(DICE_LED1_PIN_NO);
+
+                 //nrf_gpio_pin_clear(DICE_LED2_PIN_NO);
+                 dly50ms();
+                 nrf_gpio_pin_clear(DICE_LED2_PIN_NO);
+                 dly50ms();
+                 nrf_gpio_pin_set(DICE_LED2_PIN_NO);
+                 dly50ms();
+                 nrf_gpio_pin_clear(DICE_LED2_PIN_NO);
+                 dly50ms();
+                 nrf_gpio_pin_set(DICE_LED2_PIN_NO);
+                 dly50ms();
+                 nrf_gpio_pin_clear(DICE_LED2_PIN_NO);
+                 dly50ms();
+                 nrf_gpio_pin_set(DICE_LED2_PIN_NO);
+       }
+
+}
+
 /**
  * @}
  */
+
+void dly5ms(void)				  // 5 miliseconds delay 
+{ unsigned char j = 100      ;		// 100 * 50usec = 5 msec 
+	while (--j) {
+		nrf_delay_us(50)   ;
+	}  
+}
+
+void dly50ms(void)				  // 50 miliseconds delay 
+{ unsigned int j = 1000      ;		// 1000 * 50usec = 50 msec 
+	while (--j) {
+		nrf_delay_us(50)   ;
+	}  
+}
+
+void dly100ms(void)				  // 100 miliseconds delay 
+{ unsigned int j = 2000      ;		// 2000 * 50usec = 100 msec 
+	while (--j) {
+		nrf_delay_us(50)   ;
+	}  
+}
+
+void dly250ms(void)				  // 250 miliseconds delay 
+{ unsigned char k = 50       ;		//  50 * 5 msec = 250 msec 
+	while (--k) {
+		dly5ms()      ;
+	}	 // usefull for messages' display
+}  
