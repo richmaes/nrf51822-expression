@@ -783,8 +783,8 @@ static void on_ble_evt(ble_evt_t * p_ble_evt)
             application_timers_start();
 
             // Start handling button presses
-            err_code = app_button_enable();
-            APP_ERROR_CHECK(err_code);
+            //err_code = app_button_enable();
+            //APP_ERROR_CHECK(err_code);
 				
             break;
 
@@ -1018,10 +1018,10 @@ int main(void)
     gpiote_init();
 
 	
-    buttons_init();
+//    buttons_init();
     
     ble_stack_init();
-    //doubleFlashAlternating();
+    doubleFlashAlternating();
 
 
     device_manager_init();
