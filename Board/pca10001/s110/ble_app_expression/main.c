@@ -109,7 +109,7 @@
 #define APP_TIMER_MAX_TIMERS                 5                                          /**< Maximum number of simultaneously created timers. */
 #define APP_TIMER_OP_QUEUE_SIZE              5                                          /**< Size of timer operation queues. */
 
-#define BATTERY_LEVEL_MEAS_INTERVAL          APP_TIMER_TICKS(2000, APP_TIMER_PRESCALER) /**< Battery level measurement interval (ticks). */
+#define BATTERY_LEVEL_MEAS_INTERVAL          APP_TIMER_TICKS(100, APP_TIMER_PRESCALER) /**< Battery level measurement interval (ticks). */
 #define BMA222_MEAS_INTERVAL                 APP_TIMER_TICKS(50, APP_TIMER_PRESCALER)   /**< Acceloromter level measurement interval (ticks). */
 
 #define TX_TIMEOUT_DURATION                  APP_TIMER_TICKS(120000, APP_TIMER_PRESCALER)  /*!< The time to stay a awake after waking interrupts stop being asserted. */
@@ -273,50 +273,7 @@ static void battery_level_meas_timeout_handler(void * p_context)
 }
 
 
-/**@brief Accelerometer measurement timer timeout handler.
- *
- * @details This function will be called each time the BMA222 accelration measurement timer expires.
- *
- * @param[in]   p_ev_data   Event data.
- */
-static void bma222_accel_meas_timeout_handler(void * p_context)
-{
-   uint32_t err_code;
-   
-   static uint8_t prev_axis_x, prev_axis_y, prev_axis_z;
-   UNUSED_PARAMETER(p_context);
-   nrf_gpio_pin_toggle(DICE_LED1_PIN_NO);
-   #ifdef REAL_ACCEL
-      uint8_t axis_x, axis_y, axis_z;
-      // Retrieve accelerometer data from BMA222
-	    nrf_gpio_pin_set(DICE_LED1_PIN_NO);
-      bma222_acc_read();
-	    nrf_gpio_pin_set(DICE_LED2_PIN_NO);
-         
-      // Transmit buffer
-      axis_x = bma222_getX();
-      axis_y = bma222_getY();
-      axis_z = bma222_getZ();
-   #else
-      static uint8_t axis_x, axis_y, axis_z;
-      uint8_t delay;
-      delay = 0;
-         
-      if (delay==0) {
-          axis_x = axis_x + 1;
-          axis_y = axis_y + 1;
-          axis_z = axis_z + 1;
-      }
-   #endif
 
-   if ((axis_x != prev_axis_x) | (axis_y != prev_axis_y) | (axis_z != prev_axis_z))
-   {
-       ble_acs_on_button_change(&m_lbs, 0, axis_x, axis_y, axis_z);
-       prev_axis_x = axis_x;
-       prev_axis_y = axis_y;
-       prev_axis_z = axis_z;
-   }
-}
 
 /**@brief Function for handling the Heart rate measurement timer timeout.
  *
@@ -400,6 +357,51 @@ static void button_event_handler(uint8_t pin_no, uint8_t button_action)
 /*****************************************************************************
 * Static Initialization Functions
 *****************************************************************************/
+
+/**@brief Accelerometer measurement timer timeout handler.
+ *
+ * @details This function will be called each time the BMA222 accelration measurement timer expires.
+ *
+ * @param[in]   p_ev_data   Event data.
+ */
+static void bma222_accel_meas_timeout_handler(void * p_context)
+{
+   uint32_t err_code;
+   
+   static uint8_t prev_axis_x, prev_axis_y, prev_axis_z;
+   UNUSED_PARAMETER(p_context);
+   nrf_gpio_pin_toggle(DICE_LED2_PIN_NO);
+   #ifdef REAL_ACCEL
+      uint8_t axis_x, axis_y, axis_z;
+      // Retrieve accelerometer data from BMA222
+	    nrf_gpio_pin_set(DICE_LED1_PIN_NO);
+      bma222_acc_read();
+	    nrf_gpio_pin_set(DICE_LED2_PIN_NO);
+         
+      // Transmit buffer
+      axis_x = bma222_getX();
+      axis_y = bma222_getY();
+      axis_z = bma222_getZ();
+   #else
+      static uint8_t axis_x, axis_y, axis_z;
+      uint8_t delay;
+      delay = 0;
+         
+      if (delay==0) {
+          axis_x = axis_x + 1;
+          axis_y = axis_y + 1;
+          axis_z = axis_z + 1;
+      }
+   #endif
+
+   if ((axis_x != prev_axis_x) | (axis_y != prev_axis_y) | (axis_z != prev_axis_z))
+   {
+       ble_acs_on_button_change(&m_lbs, 0, axis_x, axis_y, axis_z);
+       prev_axis_x = axis_x;
+       prev_axis_y = axis_y;
+       prev_axis_z = axis_z;
+   }
+}
 
 /**@brief Function for the Timer initialization.
  *
@@ -1018,7 +1020,7 @@ int main(void)
     gpiote_init();
 
 	
-//    buttons_init();
+    buttons_init();
     
     ble_stack_init();
     doubleFlashAlternating();

@@ -11,8 +11,9 @@
  */
 #ifndef BOARDS_H
 #define BOARDS_H
-
-#if defined(BOARD_NRF6310)
+#if defined(BOARD_SMARTROLL)
+  #include "boards/smart_roll.h"
+#elif defined(BOARD_NRF6310)
   #include "boards/nrf6310.h"
 #elif defined(BOARD_PCA10000)
   #include "boards/pca10000.h"
